@@ -1,0 +1,368 @@
+# $Id: zarafa-dagent,v 1.14 2014/11/12 09:42:13 rusjako Exp $
+###########################################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <logwatch at localside.net>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to logwatch at localside.net.
+###########################################################################
+# Copyright (c) 2013 Stefan Jakobs
+# Covered under the included MIT/X-Consortium License:
+#    http://www.opensource.org/licenses/mit-license.php
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+###########################################################################
+
+use warnings;
+use strict;
+
+my $Detail      = $ENV{'LOGWATCH_DETAIL_LEVEL'} || 0;
+my $Version     = "1.0-20140110";
+
+my $top_rcpts   = $ENV{'dagent_top_rcpts'};
+
+# initialize logwatch variables 
+my $ThisLine    = "";
+my %OtherList   = ();
+
+# other variables
+my ($starts, $shutdowns) = ( 0, 0);
+my (%messageActions, %rcpts);
+my (%errors, %warnings);
+
+### Functions ###
+
+sub print_asterisks() {
+   printf "\n  ******** Details (%2i) ***************************************\n", $Detail;
+}
+
+sub print_line() {
+   print  "  --------   --------------------------------------------------\n";
+}
+
+sub print_doubleline() {
+   print  "  ========   ==================================================\n\n";
+}
+
+sub print_hash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$hash{$b} <=> $hash{$a}} keys %hash) {
+      $out .= sprintf "  %8i      %s\n", $hash{$item}, $item;
+      $sum += $hash{$item};
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_2xhash($$$) {
+   my @out;
+   my $out1 = "";
+   my $sum  = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   my $top  = $_[2];
+   foreach my $item (sort {$a cmp $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$hash{$item}{$b} <=> $hash{$item}{$a}} keys %{$hash{$item}}) {
+         $out2 .= sprintf "  %8i         %s\n", $hash{$item}{$item2}, $item2;
+         $sum2 += $hash{$item}{$item2};
+      }
+      $out1 = sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 9) { $out1 .= $out2; }
+      my @tmp_out = ($sum2, $out1);
+      push (@out, \@tmp_out);
+   }
+   my @out_sorted = sort { $b->[0] <=> $a->[0] } @out;
+   if ($top > 0) {
+      printf "\n  %8i   %-36s (top %d)\n", $sum, $desc, $top;
+   } else {
+      printf "\n  %8i   %-36s\n", $sum, $desc;
+   }
+   if ($Detail > 4) {
+	   if ($top > 0 and $top <= @out_sorted) {
+         for(my $i=1; $i <= $top; $i++) {
+            print $out_sorted[$i][1];
+         }
+      } else {
+        foreach (@out_sorted) {
+           print @$_[1];
+        }
+      }
+   }
+}
+
+sub print_3xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp  $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$a cmp $b} keys %{$hash{$item}}) {
+         my $out3 = "";
+         my $sum3 = 0;
+         foreach my $item3 (sort {$hash{$item}{$item2}{$b} <=> $hash{$item}{$item2}{$a}} keys %{$hash{$item}{$item2}}) {
+            $out3 .= sprintf "  %8i            %s\n", $hash{$item}{$item2}{$item3}, $item3;
+            $sum3 += $hash{$item}{$item2}{$item3};
+         }
+         $out2 .= sprintf "  %8i         %s\n", $sum3, $item2;
+         $sum2 += $sum3;
+         if ($Detail > 9) { $out2 .= $out3; }
+      }
+      $out .= sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 5) { $out .= $out2; }
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+
+### Parse the lines ###
+
+while (defined($ThisLine = <STDIN>)) {
+   chomp($ThisLine);
+
+   if (
+      ( $ThisLine =~ /^LMTP thread exiting$/) ||
+      ( $ThisLine =~ /^Starting worker for LMTP request pid \d+$/) ||
+      ( $ThisLine =~ /^Client disconnected$/) ||
+      ( $ThisLine =~ /^LMTP service will now exit$/) ||
+      ( $ThisLine =~ /", Message-Id: <[^<>]+>$/) ||
+      ( $ThisLine =~ /^Starting autoresponder for out-of-office message$/) ||
+      ( $ThisLine =~ /^Recover successful$/) ||
+      # log_level = 5:
+      ( $ThisLine =~ /^\* (?:(?:PreRuleProcess|PreDelivery|PostConverting|PostDelivery|SendNewMailNotify) processing|Loading plugins) (?:started|done)$/) ||
+      ( $ThisLine =~ /^Rule .* (?:doesn't match|matches|client actions are currently unsupported)$/) ||
+      ( $ThisLine =~ /^Finished processing message$/) ||
+      ( $ThisLine =~ /^Mail will be delivered in (?:.* folder|Inbox)$/) ||
+      ( $ThisLine =~ /^Spam marker found in e-mail, delivering to Junk-mail folder$/) ||
+      ( $ThisLine =~ /^Accepted connection from/) ||
+      ( $ThisLine =~ /^\*\* Checking plugins in /) ||
+      ( $ThisLine =~ /^Maximum LMTP threads set to \d+$/) ||
+      ( $ThisLine =~ /^Listening on port \d+ for LMTP$/) ||
+      ( $ThisLine =~ /^Requested e-mail address '.*' does not resolve a user/) ||
+      ( $ThisLine =~ /Unable to open folder through session, trying through store$/) ||
+      # TD: /usr/bin/zarafa-mr-accept[8927]: Resource capacity is 1
+      # TD: /usr/bin/zarafa-mr-accept[5756]: Policy is 7
+      ( $ThisLine =~ /^(?:\/\w+){1,3}\/zarafa-mr-accept\[\d+\]:/) ||
+      ( $ThisLine =~ /^Starting MR autoaccepter$/) 
+      # log_level = 6:
+#      ( $ThisLine =~ /^PYTHONPATH = /) ||
+#      ( $ThisLine =~ /^< \d{3}/) ||
+#      ( $ThisLine =~ /^> (?:RCPT TO|MAIL FROM|LHLO|DATA|QUIT)/) ||
+#      ( $ThisLine =~ /^Resolved recipient \S+@\S+ as user \S+$/) ||
+#      ( $ThisLine =~ /^Parsed command '/) ||
+#      ( $ThisLine =~ /^Rule action: /) ||
+#      ( $ThisLine =~ /^\d+ recipient\(s\) on server '/) ||
+   ) {
+      # ignore
+   }
+
+   # TD: LMTP service shutdown complete
+   elsif ($ThisLine =~ /^LMTP service shutdown complete$/) {
+      $shutdowns++;
+   }
+   # TD: Starting zarafa-dagent LMTP mode version 7,1,7,42779 (42779), pid 11153
+   elsif ($ThisLine =~ /^Starting zarafa-dagent LMTP mode version ([0-9,]+) \(\d+\), pid \d+$/) {
+      $starts++;
+   }
+   # TD: Message canceled by rule
+   elsif ($ThisLine =~ /^Message canceled by rule$/) {
+      $messageActions{'canceled'}{'by rule'}++;
+   }
+   # TD: Delivered message to 'user', Message-Id: <02.example.com>
+   # TD: Delivered message to 'user', Subject: "a sub ject", Message-Id: <02.example.com>
+   # Subject: may contain a carriage return
+   elsif ($ThisLine =~ /^Delivered message to '([^']+)', (?:Subject|Message-Id): /) {
+      $messageActions{'delivered'}{$1}++;
+   }
+   # TD: Loop protection blocked all recipients, skipping rule
+   elsif ($ThisLine =~ /^Loop protection blocked all recipients, skipping rule$/) {
+      $messageActions{'skipped'}{'Loop protection blocked all recipients'}++;
+   }
+   # TD: Same user found in From and rule, blocking for loop protection
+   elsif ($ThisLine =~ /^Same user found in From and rule, blocking for loop protection$/) {
+      $messageActions{'blocked'}{'loop protection: Same user found in From and rule'}++;
+   }
+   # TD: Rule Weiterleitung neuer Mails: FORWARD Unable to create forward message
+   elsif ($ThisLine =~ /^Rule .+: (FORWARD) (Unable to (create|send) forward message)$/) {
+      $messageActions{$1}{$2}++;
+   }
+   # TD: Rule BS: Unable to open destination folder
+   # TD: Rule Lanview-Mails: Unable to copy/move message
+   elsif ($ThisLine =~ /^Rule .+: Unable to (create|send|copy\/move|open) (forward message|message|destination folder)$/) {
+      $messageActions{$1}{$2}++;
+   }
+   # TD: Unable to parse ical information: 0x00000000, items: 19, adding as normal attachment
+   elsif ($ThisLine =~ /^(Unable to parse ical information): 0x[a-fA-F0-9]{8}, items: \d+, (adding as normal attachment)$/) {
+      $messageActions{$1}{$2}++;
+   }
+   # TD: Command '/usr/bin/zarafa-autorespond 'sender@example.com' 'rcpt@example.com' 'msg' 'user' '/tmp/autorespond.71kUhF' 2>&1' run successful
+   elsif ($ThisLine =~ /zarafa-autorespond (?:'[^']+' ){3}('[^']+') '[^']+' 2>&1' run (successful)$/) {
+      $messageActions{"autorespond: $2"}{"$1"}++;
+   }
+   # TD: Command '/usr/bin/zarafa-mr-accept "fn100934" "/etc/zarafa/dagent.cfg" "00000000312479C9436243BA9F96C695F08FF5F00100000005000000E6D56E2E98114E4685F0D00C4A6E342C00000000"' run successful
+   elsif ($ThisLine =~ /zarafa-mr-accept "([^"]+)" "[^"]+" "[0-9a-fA-F]+"' (.*)$/) {
+      $messageActions{"mr-accept: $1"}{$2}++;
+   }
+   # TD: Autoaccept processing completed successfully. Skipping further processing.
+   elsif ($ThisLine =~ /^Autoaccept processing completed (successfully)\. (.*)/) {
+      $messageActions{"autoaccept: $1"}{$2}++;
+   }
+   # TD: Combining recipient myuser@example.com and user, delivering only once
+   elsif ($ThisLine =~ /^Combining recipient (\S+) and (\S+), delivering only once$/) {
+      $messageActions{'combining recipient'}{"$2 <- $1"}++;
+   }
+   # TD: Resolved recipient st123@example.com as user st123
+   elsif ($ThisLine =~ /^Resolved recipient ([^\s]+) as user (.*)$/) {
+      $rcpts{$2}{$1}++;
+   }
+
+   ## Errors
+   # TD: Unable to connect to zarafa server for user SYSTEM, using socket: 'https://server:237/zarafa'
+   elsif ($ThisLine =~ /^Unable to connect to zarafa server for user (\S+), using socket: '(.*)'$/) {
+      $errors{'connection failed'}{"$1 -> $2"}++;
+   }
+   # TD: TNEF attachment parsing failed: 0x8004010F
+   elsif ($ThisLine =~ /^((?:E-mail|TNEF attachment) parsing failed): (0x[a-fA-F0-9]{8})(.*)/) {
+      my $error = "$3: " .lc($2);
+      $errors{$error}{$1}++;
+   }
+   # TD: Unable to process rules, error code: 0x80040400
+   # TD: Unable to open default store for system account, error code: 0x80040116
+   # TD: Unable to send 'New Mail' notification, error code: 0x80040115
+   # TD: Unable to open inbox folder, error code: 0x80040116
+   elsif ($ThisLine =~ /^(Unable to (?:process rules|send 'New Mail' notification|open inbox folder|open default store for system account), error code: (0x[a-fA-F0-9]{8}))$/) {
+      $errors{"Unable to access store: " .lc($2)}{$1}++;
+   }
+   # TD: Unable to login for user myuser, error code: 0x80040400
+   # TD: Unable to deliver message to 'myuser', error code: 0x80040116
+   elsif ($ThisLine =~ /^(Unable to login for user|Unable to deliver message to) '?([^\s]+)'?, error code: (0x[a-fA-F0-9]{8})$/) {
+      $errors{"$1: " .lc($3)}{$2}++;
+   }
+   # TD: Error while processing rules: 0x80040400
+   elsif ($ThisLine =~ /^(Error while processing rules): (0x[a-fA-F0-9]{8})$/) {
+      $errors{"Error processing rules: " .lc($2)}{$1}++;
+   }
+   # TD: Unable to commit message: 0x80040115
+   elsif ($ThisLine =~ /^(Unable to commit message): (0x[a-fA-F0-9]{8})$/) {
+      $errors{"$1: " .lc($2)}{lc($2)}++;
+   }
+   # TD: LMTP write error
+   elsif ($ThisLine =~ /^(LMTP write error|Error during DATA communication with client\.)$/) {
+      $errors{$1}{''}++;
+   }
+
+   ## Warnings
+   # TD: Waiting for 2 processes to exit
+   elsif ($ThisLine =~ /^Waiting for \d+ processes to exit$/) {
+      $warnings{'waiting for processes to exit'}++;
+   }
+   # TD: Incorrect charset for html body: utf-8, trying to recover
+   elsif ($ThisLine =~ /^(Incorrect charset for html body: \S+, trying to recover$)/) {
+      $warnings{$1}++;
+   }
+   # TD: Changing HTML charset to UTF-8 for compatibility
+   elsif ($ThisLine =~ /^(Changing HTML charset to UTF-8 for compatibility)$/) {
+      $warnings{$1}++;
+   }
+   # TD: Failed to read line: Connection reset by peer
+   elsif ($ThisLine =~ /^(Failed to read line: Connection reset by peer)$/) {
+      $warnings{$1}++;
+   }
+   # TD: Unable to parse mail body
+   # TD: Unable to parse mail HTML text
+   elsif ($ThisLine =~ /^(Unable to parse (?:sub multipart 1 of )?mail (?:body|HTML text))$/) {
+      $warnings{$1}++;
+   }
+   # TD: Failed to resolve recipient user@example.com
+   elsif ($ThisLine =~ /(Failed to resolve recipient .*)$/) {
+      $warnings{$1}++;
+   }
+   # TD: Unable to copy e-mail for rule foobar
+   # TD: Unable to deliver all messages for server 'file:///var/run/zarafa'
+   elsif ($ThisLine =~ /(Unable to (?:copy e-mail for rule|open default resolve directory|deliver all messages for server))/) {
+      $warnings{$1}++;
+   }
+   # TD: HTML body does not contain HEAD information, using default charset US-ASCII
+   elsif ($ThisLine =~ /HTML body does not contain (HEAD|meta charset) information, using default charset (\w+)/) {
+      $warnings{"Using default charset $2, because of missing $1 information"}++;
+   }
+   # TD: VMIME exception on html body: Parameter not found: 'charset'.
+   elsif ($ThisLine =~ /^VMIME exception on html body: Parameter not found: '(charset)'\.$/) {
+      $warnings{"VMIME exception: Parameter not found: $1"}++;
+   }
+   
+   # Report any unmatched entries...
+   else {
+      $OtherList{$ThisLine}++;
+   }
+}
+
+## OUTPUT ##
+
+# \t = 8 chars
+# %-56s: %5i Time(s)
+
+if ($starts) {
+   printf "  %8i   %-36s\n", $starts, 'zarafa-dagent starts';
+}
+if ($shutdowns) {
+   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-dagent shutdowns';
+}
+
+if ($starts or $shutdowns) { 
+   print_doubleline();
+}
+if (keys %warnings) {
+   print_hash(\%warnings, 'Warnings');
+}
+if (keys %errors) {
+   print_2xhash(\%errors, 'Errors', 0);
+}
+
+if (keys %messageActions or keys %rcpts) {
+   print_asterisks();
+}
+
+if (keys %messageActions) {
+   print_2xhash(\%messageActions, 'Message Actions', 0);
+}
+
+if (keys %rcpts) {
+  print_2xhash(\%rcpts, 'Recipients', $top_rcpts);
+}
+
+if (keys %OtherList) {
+   print "\n**** Unmatched entries ****\n";
+   foreach my $Error (keys %OtherList) {
+      print "    $Error : $OtherList{$Error} Time(s)\n";
+   }
+}
+

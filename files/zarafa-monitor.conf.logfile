@@ -1,0 +1,29 @@
+##########################################################################
+# $Id: zarafa-monitor.conf.logfile,v 1.1 2014/06/26 13:49:38 rusjako Exp $
+##########################################################################
+
+########################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <stefan.jakobs at tik.uni-stuttgart.de>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to stefan.jakobs at tik.uni-stuttgart.de.
+########################################################
+
+# What actual file?  Defaults to LogPath if not absolute path....
+LogFile =
+LogFile = zarafa/monitor.log
+
+# If the archives are searched, here is one or more line
+# (optionally containing wildcards) that tell where they are...
+#If you use a "-" in naming add that as well -mgt
+Archive =
+Archive = zarafa/alt/monitor.log-*
+
+
+# Keep only the lines in the proper date range...
+*OnlyHost
+*ApplyStdDate
+
+# vi: shiftwidth=3 tabstop=3 et
+

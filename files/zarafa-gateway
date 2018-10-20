@@ -1,0 +1,404 @@
+# $Id: zarafa-gateway,v 1.14 2014/11/12 10:09:02 rusjako Exp $
+###########################################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <logwatch at localside.net>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to logwatch at localside.net.
+###########################################################################
+# Copyright (c) 2013 Stefan Jakobs
+# Covered under the included MIT/X-Consortium License:
+#    http://www.opensource.org/licenses/mit-license.php
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+###########################################################################
+
+use warnings;
+use strict;
+
+my $Detail      = $ENV{'LOGWATCH_DETAIL_LEVEL'} || 0;
+my $Version     = "1.0-20140110";
+
+# initialize logwatch variables 
+my $ThisLine    = "";
+my %OtherList   = ();
+
+# other variables
+my ($starts, $shutdowns) = ( 0, 0);
+my ($ical_starts, $ical_shutdowns) = ( 0, 0);
+my (%threads, %workers, %logins, %clients);
+my (%errors, %warnings);
+my %icalActions;
+
+### Functions ###
+
+sub print_asterisks() {
+   printf "\n  ******** Details (%2i) ***************************************\n", $Detail;
+}
+
+sub print_line() {
+   print  "  --------   --------------------------------------------------\n";
+}
+
+sub print_doubleline() {
+   print  "  ========   ==================================================\n\n";
+}
+
+sub print_hash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$hash{$b} <=> $hash{$a}} keys %hash) {
+      $out .= sprintf "  %8i      %s\n", $hash{$item}, $item;
+      $sum += $hash{$item};
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_2xhash($$$) {
+   my @out;
+   my $out1 = "";
+   my $sum  = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   my $top  = $_[2];
+   foreach my $item (sort {$a cmp $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$hash{$item}{$b} <=> $hash{$item}{$a}} keys %{$hash{$item}}) {
+         $out2 .= sprintf "  %8i         %s\n", $hash{$item}{$item2}, $item2;
+         $sum2 += $hash{$item}{$item2};
+      }
+      $out1 = sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 9) { $out1 .= $out2; }
+      my @tmp_out = ($sum2, $out1);
+      push (@out, \@tmp_out);
+   }
+   my @out_sorted = sort { $b->[0] <=> $a->[0] } @out;
+   if ($top > 0) {
+      printf "\n  %8i   %-36s (top %d)\n", $sum, $desc, $top;
+   } else {
+      printf "\n  %8i   %-36s\n", $sum, $desc;
+   }
+   if ($Detail > 4) {
+      if ($top > 0 and $top <= @out_sorted) {
+         for(my $i=1; $i <= $top; $i++) {
+            print $out_sorted[$i][1];
+         }
+      } else {
+        foreach (@out_sorted) {
+           print @$_[1];
+        }
+      }
+   }
+}
+
+sub print_3xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp  $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$a cmp $b} keys %{$hash{$item}}) {
+         my $out3 = "";
+         my $sum3 = 0;
+         foreach my $item3 (sort {$hash{$item}{$item2}{$b} <=> $hash{$item}{$item2}{$a}} keys %{$hash{$item}{$item2}}) {
+            $out3 .= sprintf "  %8i            %s\n", $hash{$item}{$item2}{$item3}, $item3;
+            $sum3 += $hash{$item}{$item2}{$item3};
+         }
+         $out2 .= sprintf "  %8i         %s\n", $sum3, $item2;
+         $sum2 += $sum3;
+         if ($Detail > 9) { $out2 .= $out3; }
+      }
+      $out .= sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 4) { $out .= $out2; }
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+
+### Parse the lines ###
+
+while (defined($ThisLine = <STDIN>)) {
+   chomp($ThisLine);
+
+   if (
+      ( $ThisLine =~ /^(?:POP3\/IMAP|CalDAV) Gateway will now exit$/) ||
+      ( $ThisLine =~ /^Listening on port \d{1,5}/) ||
+      ( $ThisLine =~ /^Connection waiting on secure port \d{1,5}$/)
+   ) {
+      # ignore
+   }
+
+   # TD: POP3/IMAP Gateway shutdown complete
+   elsif ($ThisLine =~ /^POP3\/IMAP Gateway shutdown complete$/) {
+      $shutdowns++;
+   }
+   # TD: Starting zarafa-gateway version 7,1,8,43454 (43454), pid 13886
+   elsif ($ThisLine =~ /^Starting zarafa-gateway version ([0-9,]+) \(\d+\), pid \d+$/) {
+      $starts++;
+   }
+   # TD: CalDAV Gateway shutdown complete
+   elsif ($ThisLine =~ /^CalDAV Gateway shutdown complete$/) {
+      $ical_shutdowns++;
+   }
+   # TD: Starting zarafa-ical version 7,1,7,42779 (42779), pid 1800
+   elsif ($ThisLine =~ /^Starting zarafa-ical version ([0-9,]+) \(\d+\), pid \d+$/) {
+      $ical_starts++;
+   }
+   # TD: Disconnecting client
+   elsif ($ThisLine =~ /^Disconnecting client\.$/) {
+      $clients{'disconnecting'}++;
+   }
+   # TD: Client disconnected
+   elsif ($ThisLine =~ /^Client disconnected$/) {
+      $clients{'disconnected'}++;
+   }
+   # TD: Connection closed because of timeout
+   elsif ($ThisLine =~ /^Connection closed because of timeout$/) {
+      $clients{'connection closed (timeout)'}++;
+   }
+   # TD: Connection error.
+   elsif ($ThisLine =~ /^Connection error\.$/) {
+      $clients{'connection error'}++;
+   }
+   # TD: IMAP Login from 127.0.0.1 for user myuser
+   elsif ($ThisLine =~ /^(POP3|IMAP) Login from ([a-fA-F0-9.:]+) for user (\S+)$/) {
+      $logins{"Succeeded: $1"}{$2}{$3}++;
+   }
+   # TD: Failed to login from 127.0.0.1 with invalid username "ac000900" or wrong password. Error: 0x80040115
+   elsif ($ThisLine =~ /^Failed to login from ([a-fA-F0-9.:]+) with invalid username \"([^"]+)\" or wrong password. Error: (0x[a-fA-F0-9]{8})$/) {
+      $logins{'Failed'}{$1}{$2}++;
+      $errors{'Failed to login'}{lc($3)}++;
+   }
+   # TD: Disconnecting client of user myuser because too many (10) erroneous commands received, last reply:
+   elsif ($ThisLine =~ /^Disconnecting client of user (\S*) because too many \((\d+)\) erroneous commands received/) {
+      $logins{'too many erroneous commands'}{$1}{$2}++;
+   }
+   # TD: Client 127.0.0.1 thread exiting
+   elsif ($ThisLine =~ /^Client ([a-fA-F0-9.:]+) thread exiting$/) {
+      $threads{'exits'}{$1}++;
+   }
+   # TD: Starting worker process for POP3 request
+   elsif ($ThisLine =~ /^Starting worker (?:process|thread) for (POP3|IMAP) request$/) {
+      $workers{$1}{'starts'}++;
+   }
+
+   ### zarafa-ical ###
+   # TD: 127.0.0.1 - myuser [22/Jan/2014:15:16:49 +0100] "PROPFIND /caldav/myuser/Inbox/ HTTP/1.1" 207 456 "-" "Mac_OS_X/10.9.1 (13B42) CalendarAgent/174"
+   # TD: IP - user [date] "CMD /path/to/file HTTP/1.1" STATUS SIZE "-" "Client string"
+   elsif ($ThisLine =~ /^([0-9a-fA-F.:]+) - (\S+) \[\d\d\/\w{3}\/\d{4}:\d\d:\d\d:\d\d \+\d{4}\] "(\w+) .* HTTP\/\d\.\d" \d{3} \d+ "-" "(.*)"/) {
+      $icalActions{$4}{"$2 [$1]"}{$3}++
+   }
+   # TD: Unable to open store of user user1 with user myuser, error code : 0x8004010F
+   elsif ($ThisLine =~ /^Unable to open store of user ([^ ]+) with user ([^ ]+), error code : (0x[0-9a-fA-F]{8})$/) {
+      $icalActions{"Unable to open store: " .lc($3)}{"$1"}{"with user $2"}++;
+   }
+   # TD: Error retrieving table rows, error code : 0x80040115
+   # TD: Error converting mapi message to ical, error code : 0x8004010F
+   elsif ($ThisLine =~ /^(Error (?:retrieving table rows|converting mapi message to ical)), error code : (0x[0-9a-fA-F]{8})$/) {
+      $warnings{"$1: " .lc($2)}++;
+   }
+   # TD: No message in ical data in PUT request, error code : 0x80040108
+   elsif ($ThisLine =~ /^(No message in ical data in PUT request), error code : (0x[0-9a-fA-F]{8})$/) {
+      $warnings{"$1:$2"}++;
+   }
+   # TD: Invalid sub item in ical, unable to save message
+   elsif ($ThisLine =~ /^(Invalid sub item in ical, unable to save message)$/) {
+      $errors{"ical: $1"}{''}++;
+   }
+   # TD: More than one message found in PUT, trying to combine messages
+   elsif ($ThisLine =~ /^(More than one message found in PUT, trying to combine messages)$/) {
+      $warnings{"$1"}++;
+   }
+
+
+   ### zarafa-gateway ###
+   ## Errors
+   # TD: Failed to read line: Connection reset by peer
+   elsif ($ThisLine =~ /^Failed to (read line): (.*)$/) {
+      $errors{$1}{$2}++;
+   }
+   # TD: Pid 10383 caught SIGSEGV (11), traceback:
+   elsif ($ThisLine =~ /^Pid \d+ caught SIGSEGV \(\d+\), traceback:/) {
+      $errors{'SIGSEGV'}{'for traceback see logfile'}++;
+   }
+   # TD: Error in generating message 16 for user st108152 in folder INBOX
+   elsif ($ThisLine =~ /^Error in generating message \d+ for user (\S+) in folder/) {
+      $errors{'Error in generating message'}{$1}++;
+   }
+   # TD: Unable to retrieve contents of folder, error code: 0x8004010F
+   # TD: Error processing GET request, error code 0x8004010f
+   # TD: Unable to open recipient table. Error: 0x8004010F
+   elsif ($ThisLine =~ /^(.*)(?:\. Error|, error code):? (0x[a-fA-F0-9]{8})$/) {
+      $errors{$1}{lc($2)}++;
+   }
+   # TD: Error opening IPM SUBTREE, using user myuser, error code : 0x80040115
+   elsif ($ThisLine =~ /^(Error opening IPM SUBTREE), using user ([^ ]+), error code : (0x[a-fA-F0-9]{8})$/) {
+      $errors{"$1: $2"}{lc($3)}++;
+   }
+   # TD: {?} Error fetching mail
+   elsif ($ThisLine =~ /^\{\?\} Error fetching mail$/) {
+      $errors{'Error fetching mail'}{''}++;
+   }
+   # TD: Error switching to SSL in STARTTLS
+   elsif ($ThisLine =~ /^(Error switching to SSL in STARTTLS)$/) {
+      $errors{"$1"}{''}++
+   }
+   # TD: Error converting MAPI to MIME: 0x8004010f
+   elsif ($ThisLine =~ /^(Error converting MAPI to MIME): (0x[a-fA-F0-9]{8})$/) {
+      $errors{"$1"}{lc($2)}++;
+   }
+
+   ## Warnings
+   # TD: Not authorized for command: CAPA
+   # TD: non-existing function called: CAPA
+   elsif ($ThisLine =~ /^(Not authorized for command|non-existing function called): (\w+)$/) {
+      $warnings{"$1: $2"}++;
+   }
+   # TD: Unable to create ical object, sending as TNEF
+   elsif ($ThisLine =~ /^(Unable to create ical object, sending as TNEF)$/) {
+      $warnings{$1}++;
+   }
+   # TD: Unable to parse ical information: 0x80004005, items: 0, adding as normal attachment
+   elsif ($ThisLine =~ /^(Unable to parse ical information): (0x[0-9a-fA-F]{8}), items: \d+, (adding as normal attachment)$/) {
+      $warnings{"$1, $3: $2"}++
+   }
+   # TD: Connection error
+   elsif ($ThisLine =~ /^(Connection error)$/) {
+      $warnings{$1}++;
+   }
+   # TD: 13.1132 NO STATUS error finding folder
+   # TD: A000040 NO LIST unable to list folders
+   # TD: A000113 NO SELECT error getting mails in folder
+   elsif ($ThisLine =~ /^[a-zA-Z0-9.]+ ([A-Z ]+) (.*)$/) {
+      $warnings{"$1: $2"}++
+   }
+   # TD: Forced shutdown with 47 procesess left
+   elsif ($ThisLine =~ /^Forced shutdown with \d+ process?ess? left$/) {
+      $warnings{'Forced shutdown with processes left'}++;
+   }
+   # TD: Waiting for 53 processes to exit
+   elsif ($ThisLine =~ /^Waiting for \d+ processes to exit$/) {
+      $warnings{'Waiting for processes to exit'}++;
+   }
+   # TD: Failed to find special folder properties
+   # TD: Failed to find receive folder of store
+   elsif ($ThisLine =~ /^(Failed to find (?:special|receive) folder (?:properties|of store))$/) {
+      $warnings{$1}++;
+   }
+   # TD: Failed to open default store
+   # TD: zarafa-ical: Error opening default store of user myuser, error code : 0x8004011D
+   elsif ($ThisLine =~ /^((?:Error opening|Failed to open) (?:default store|addressbook))/) {
+      $warnings{$1}++;
+   }
+   # TD: Login failed (0x80040115), resending authentication request
+   elsif ($ThisLine =~ /^Login failed \((0x[a-fA-F0-9]{8})\), resending authentication request$/) {
+      $warnings{"Login failed, resending authentication request: " .lc($1)}++;
+   }
+   # TD: Maximum message size reached (31457280), message size is 65077573 bytes
+   elsif ($ThisLine =~ /^(Maximum message size reached \(\d+\)), message size is \d+ bytes$/) {
+      $warnings{"$1"}++;
+   }
+   # TD: Discarding 65077573 bytes of data
+   elsif ($ThisLine =~ /^Discarding \d+ bytes of data$/) {
+      $warnings{"Discarding data (max message size reached?)"}++;
+   }
+   # TD: Content-Transfer-Encoding: BAD Command not supported
+   elsif ($ThisLine =~ /^(Content-Transfer-Encoding: BAD Command not supported)$/) {
+      $warnings{"$1"}++;
+   }
+   
+   # Report any unmatched entries...
+   else {
+      $OtherList{$ThisLine}++;
+   }
+}
+
+## OUTPUT ##
+
+# \t = 8 chars
+# %-56s: %5i Time(s)
+
+if ($starts) {
+   printf "  %8i   %-36s\n", $starts, 'zarafa-gateway starts';
+}
+if ($shutdowns) {
+   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-gateway shutdowns';
+}
+
+if ($ical_starts) {
+   printf "  %8i   %-36s\n", $ical_starts, 'zarafa-ical starts';
+}
+if ($ical_shutdowns) {
+   printf "  %8i   %-36s\n", $ical_shutdowns, 'zarafa-ical shutdowns';
+}
+
+if ($starts or $shutdowns or $ical_starts or $ical_shutdowns) { 
+   print_doubleline();
+}
+if (keys %warnings) {
+   print_hash(\%warnings, 'Warnings');
+}
+if (keys %errors) {
+   print_2xhash(\%errors, 'Errors', 0);
+}
+
+if (keys %workers or keys %clients or
+    keys %logins or keys %threads) {
+   print_asterisks();
+}
+
+if (keys %logins) {
+   print_3xhash(\%logins, 'Users logged in');
+}
+
+if (keys %clients) {
+   print_hash(\%clients, 'Clients');
+}
+
+if (keys %threads) {
+   print_2xhash(\%threads, 'Threads', 0);
+}
+
+if (keys %workers) {
+   print_2xhash(\%workers, 'Workers', 0);
+}
+
+if (keys %icalActions) {
+   print_3xhash(\%icalActions, 'iCal Actions');
+}
+
+if (keys %OtherList) {
+   print "\n**** Unmatched entries ****\n";
+   foreach my $Error (keys %OtherList) {
+      print "    $Error : $OtherList{$Error} Time(s)\n";
+   }
+}
+

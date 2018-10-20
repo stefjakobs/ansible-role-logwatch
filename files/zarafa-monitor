@@ -1,0 +1,269 @@
+# $Id: zarafa-monitor,v 1.3 2014/10/09 12:11:54 rusjako Exp $
+###########################################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <logwatch at localside.net>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to logwatch at localside.net.
+###########################################################################
+# Copyright (c) 2013 Stefan Jakobs
+# Covered under the included MIT/X-Consortium License:
+#    http://www.opensource.org/licenses/mit-license.php
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+###########################################################################
+
+use warnings;
+use strict;
+
+my $Detail      = $ENV{'LOGWATCH_DETAIL_LEVEL'} || 0;
+my $Version     = "1.0-20140110";
+
+# initialize logwatch variables 
+my $ThisLine    = "";
+my %OtherList   = ();
+
+# other variables
+my ($starts, $shutdowns) = ( 0, 0);
+my (%quota_exceeded, %mail_delivered);
+my (%errors, %warnings);
+my $runtime = 0;
+my $runs = 0;
+my $processed = 0;
+my $failed = 0;
+
+### Functions ###
+
+sub print_asterisks() {
+   printf "\n  ******** Details (%2i) ***************************************\n", $Detail;
+}
+
+sub print_line() {
+   print  "  --------   --------------------------------------------------\n";
+}
+
+sub print_doubleline() {
+   print  "  ========   ==================================================\n\n";
+}
+
+sub print_hash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$hash{$b} <=> $hash{$a}} keys %hash) {
+      $out .= sprintf "  %8i      %s\n", $hash{$item}, $item;
+      $sum += $hash{$item};
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_2xhash($$$) {
+   my @out;
+   my $out1 = "";
+   my $sum  = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   my $top  = $_[2];
+   foreach my $item (sort {$a cmp $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$hash{$item}{$b} <=> $hash{$item}{$a}} keys %{$hash{$item}}) {
+         $out2 .= sprintf "  %8i         %s\n", $hash{$item}{$item2}, $item2;
+         $sum2 += $hash{$item}{$item2};
+      }
+      $out1 = sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 9) { $out1 .= $out2; }
+      my @tmp_out = ($sum2, $out1);
+      push (@out, \@tmp_out);
+   }
+   my @out_sorted = sort { $b->[0] <=> $a->[0] } @out;
+   if ($top > 0) {
+      printf "\n  %8i   %-36s (top %d)\n", $sum, $desc, $top;
+   } else {
+      printf "\n  %8i   %-36s\n", $sum, $desc;
+   }
+   if ($Detail > 4) {
+      if ($top > 0 and $top <= @out_sorted) {
+         for(my $i=1; $i <= $top; $i++) {
+            print $out_sorted[$i][1];
+         }
+      } else {
+        foreach (@out_sorted) {
+           print @$_[1];
+        }
+      }
+   }
+}
+
+sub print_3xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp  $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$a cmp $b} keys %{$hash{$item}}) {
+         my $out3 = "";
+         my $sum3 = 0;
+         foreach my $item3 (sort {$hash{$item}{$item2}{$b} <=> $hash{$item}{$item2}{$a}} keys %{$hash{$item}{$item2}}) {
+            $out3 .= sprintf "  %8i            %s\n", $hash{$item}{$item2}{$item3}, $item3;
+            $sum3 += $hash{$item}{$item2}{$item3};
+         }
+         $out2 .= sprintf "  %8i         %s\n", $sum3, $item2;
+         $sum2 += $sum3;
+         if ($Detail > 9) { $out2 .= $out3; }
+      }
+      $out .= sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 5) { $out .= $out2; }
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+
+### Parse the lines ###
+
+while (defined($ThisLine = <STDIN>)) {
+   chomp($ThisLine);
+
+   if (
+      ( $ThisLine =~ /^Connection to Zarafa server succeeded$/) ||
+      ( $ThisLine =~ /^Checking quota for (?:company)/) ||
+      ( $ThisLine =~ /^Connecting to server \S+ using url/) ||
+      ( $ThisLine =~ /^Not sending message since the warning mail has already been sent in the past time interval$/) ||
+      ( $ThisLine =~ /^Quota monitor starting$/)
+   ) {
+      # ignore
+   }
+
+   # TD: Termination requested, shutting down
+   elsif ($ThisLine =~ /^Termination requested, shutting down$/) {
+      $shutdowns++;
+   }
+   # TD: Starting zarafa-monitor version 7,1,10,44973 (44973), pid 371
+   elsif ($ThisLine =~ /^Starting zarafa-monitor version \d+,\d+,\d+,\d+ \(\d+\), pid \d+$/) {
+      $starts++;
+   }
+   # TD: Storage size of company Studenten has exceeded one or more size limits
+   elsif ($ThisLine =~ /^Storage size of company (.*) has exceeded one or more size limits$/) {
+      $quota_exceeded{'company'}{$1}++;
+   }
+   # TD: Mailbox of user myuser has exceeded its warning limit
+   elsif ($ThisLine =~ /^Mailbox of user (.*) has exceeded its (warning|soft|hard) limit$/) {
+      # don't count the event; just mark that there is one event per user
+      $quota_exceeded{$2}{$1} = 1;
+   }
+   # TD: Quota monitor done in 31 seconds. Processed: 29937, Failed: 1
+   elsif ($ThisLine =~ /^Quota monitor done in (\d+) seconds. Processed: (\d+), Failed: (\d+)$/) {
+      $runtime += $1;
+      $runs++;
+      $processed = $2;
+      if ($failed < $3) {
+         $failed = $3;
+      }
+   }
+   # TD: Mail delivered to user myuser
+   elsif ($ThisLine =~ /^Mail delivered to user (.+)$/) {
+      $mail_delivered{$1}++;
+   }
+
+   ## Errors
+   # TD: Unable to connect to server https://host.example.com:237/zarafa, error code 0x80040116
+   elsif ($ThisLine =~ /^Unable to connect to server (\S+), error code (0x[a-fA-F0-9]{8})$/) {
+      $errors{"connection failed: $1"}{lc($2)}++;
+   }
+   # TD: Unable to get store entry id for 'Mitarbeiter (alt)', error code: 0x80040116
+   elsif ($ThisLine =~ /^Unable to get store entry id for '([^']+)', error code: (0x[a-fA-F0-9]{8})$/) {
+      $errors{"unable to get store id: $1"}{lc($2)}++;
+   }
+   # TD: Unable to resolve servername mail-znode-TEST0, error code 0x8004010F
+   elsif ($ThisLine =~ /^Unable to resolve servername (.*), error code (0x[a-fA-F0-9]{8})$/) {
+      $errors{"unable to resolve servername: $1"}{lc($2)}++;
+   }
+
+   ## Warnings
+   # TD: Waiting for 2 processes to exit
+   elsif ($ThisLine =~ /^Waiting for \d+ processes to exit$/) {
+      $warnings{'waiting for processes to exit'}++;
+   }
+   
+   # Report any unmatched entries...
+   else {
+      $OtherList{$ThisLine}++;
+   }
+}
+
+## OUTPUT ##
+
+# \t = 8 chars
+# %-56s: %5i Time(s)
+
+if ($starts) {
+   printf "  %8i   %-36s\n", $starts, 'zarafa-monitor starts';
+}
+if ($shutdowns) {
+   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-monitor shutdowns';
+}
+if ($runtime > 0) {
+   printf "  %8i   %-36s\n", $runtime, 'runtime';
+}
+if ($runs > 0) {
+   printf "  %8i   %-36s\n", $runtime / $runs, 'avg. runtime';
+   printf "  %8i   %-36s\n", $runs, 'times of quota check done';
+}
+if ($failed > 0) {
+   printf "  %8i   %-36s\n", $failed, 'overquota accounts';
+}
+
+if ($starts or $shutdowns) { 
+   print_doubleline();
+}
+if (keys %warnings) {
+   print_hash(\%warnings, 'Warnings');
+}
+if (keys %errors) {
+   print_2xhash(\%errors, 'Errors', 0);
+}
+
+if (keys %quota_exceeded) {
+   print_asterisks();
+}
+
+if (keys %quota_exceeded) {
+   print_2xhash(\%quota_exceeded, 'Quota Exceeded', 0);
+}
+if (keys %mail_delivered) {
+   print_hash(\%mail_delivered, 'Notification delivered to');
+}
+
+if (keys %OtherList) {
+   print "\n**** Unmatched entries ****\n";
+   foreach my $Error (keys %OtherList) {
+      print "    $Error : $OtherList{$Error} Time(s)\n";
+   }
+}
+

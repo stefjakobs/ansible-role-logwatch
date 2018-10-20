@@ -1,0 +1,32 @@
+###########################################################################
+# $Id: zarafa-spooler.conf.service,v 1.1 2014/01/10 16:35:04 rusjako Exp $
+###########################################################################
+
+# You can put comments anywhere you want to.  They are effective for the
+# rest of the line.
+
+# this is in the format of <name> = <value>.  Whitespace at the beginning
+# and end of the lines is removed.  Whitespace before and after the = sign
+# is removed.  Everything is case *insensitive*.
+
+# Yes = True  = On  = 1
+# No  = False = Off = 0
+
+Title = "zarafa-spooler"
+
+# Which logfile group...
+LogFile = zarafa-spooler
+
+# Only give lines pertaining to the syslogd service...
+*OnlyService = "zarafa-spooler\[[0-9]*\]"
+*RemoveHeaders
+
+########################################################
+# This was written and is maintained by:
+#   Stefan Jakobs (stefan.jakobs@rus.uni-stuttgart.de) 
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to stefan.jakobs@rus.uni-stuttgart.de.
+########################################################
+
+# vi: shiftwidth=3 tabstop=3 et

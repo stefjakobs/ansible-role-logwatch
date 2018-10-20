@@ -1,0 +1,555 @@
+# $Id: zarafa-server,v 1.28 2014/12/04 15:21:56 rusjako Exp $
+###########################################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <stefan.jakobs at tik.uni-stuttgart.de>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to stefan.jakobs at tik.uni-stuttgart.de.
+###########################################################################
+# Copyright (c) 2013 Stefan Jakobs
+# Covered under the included MIT/X-Consortium License:
+#    http://www.opensource.org/licenses/mit-license.php
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+###########################################################################
+
+use warnings;
+use strict;
+
+my $Detail      = $ENV{'LOGWATCH_DETAIL_LEVEL'} || 0;
+my $Version     = "1.0-20131111";
+
+# initialize logwatch variables 
+my $ThisLine    = "";
+my %OtherList   = ();
+
+# initialize variables which save the stats
+my ($authOK, $authNotOK)        = (0, 0);
+my ($starts, $shutdowns)        = (0, 0);
+my $licensed_starts             = 0;
+my $licensed_shutdowns          = 0;
+my $admstore                    = 0;
+my $idNotFound                  = 0;
+my $accessAllowed               = 0;
+my $autoDeleteUser              = 0;
+my $connectDB                   = 0;
+my $syncTableFailed             = 0;
+my $companyID                   = 0;
+my $sslerror                    = 0;
+my $nocert                      = 0;
+my $initUserPlugin              = 0;
+my $waitingForThreads           = 0;
+my (%objects, %userPlugins, %accessDenied);
+my %sslContext;
+my (%serverDetails);
+my (%authPluginFailed, %authFailed);
+my (%authSuccessPW, %authSuccessSSL);
+my (%Attachment, %failedToLoad);
+my (%attrtype, %retriveExternalList, %database);
+my (%errors, %warnings);
+my %listenFor;
+my (%clientUpdate, %clientUpdateLogs);
+my %outlookSync;
+
+my (%UserStoreCreated, %UserCreated, %Commands);
+my (%StoreUnhooked, %StoreRemoved);
+my (%CompanyCreated, %companyDetails);
+my (%SQL, %LDAPQueryFailed, %Sessions);
+my (%IndexerError);
+
+### Functions ###
+
+sub print_asterisks() {
+   printf "\n  ******** Details (%2i) ***************************************\n", $Detail;
+}
+
+sub print_line() {
+   print  "  --------   --------------------------------------------------\n";
+}
+
+sub print_doubleline() {
+   print  "  ========   ==================================================\n\n";
+}
+
+sub print_hash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$hash{$b} <=> $hash{$a}} keys %hash) {
+      $out .= sprintf "  %8i      %s\n", $hash{$item}, $item;
+      $sum += $hash{$item};
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_2xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp $b} keys %hash) {
+         my $out2 = "";
+         my $sum2 = 0;
+         foreach my $item2 (sort {$hash{$item}{$b} <=> $hash{$item}{$a}} keys %{$hash{$item}}) {
+            $out2 .= sprintf "  %8i         %s\n", $hash{$item}{$item2}, $item2;
+            $sum2 += $hash{$item}{$item2};
+         }
+         $out .= sprintf "  %8i      %s\n", $sum2, $item;
+         $sum += $sum2;
+         if ($Detail > 9) { $out .= $out2; }
+      }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_3xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp  $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$a cmp $b} keys %{$hash{$item}}) {
+         my $out3 = "";
+         my $sum3 = 0;
+         foreach my $item3 (sort {$hash{$item}{$item2}{$b} <=> $hash{$item}{$item2}{$a}} keys %{$hash{$item}{$item2}}) {
+            $out3 .= sprintf "  %8i            %s\n", $hash{$item}{$item2}{$item3}, $item3;
+            $sum3 += $hash{$item}{$item2}{$item3};
+         }
+         $out2 .= sprintf "  %8i         %s\n", $sum3, $item2;
+         $sum2 += $sum3;
+         if ($Detail > 9) { $out2 .= $out3; }
+      }
+      $out .= sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 5) { $out .= $out2; }
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+
+### Parse the lines ###
+
+while (defined($ThisLine = <STDIN>)) {
+   chomp($ThisLine);
+
+   if (
+      ( $ThisLine =~ /^Accepted/) || 
+      ( $ThisLine =~ /^plugin/) ||
+      ( $ThisLine =~ /User SYSTEM receives session/) ||
+      ( $ThisLine =~ /End of session/) ||
+      ## User myuser from file:///var/run/zarafa authenticated through Pipe socket using program python
+      ( $ThisLine =~ /User \w+ from file/) ||                          
+      ( $ThisLine =~ /^User \w+\d+ receives session \d+$/) ||
+      ( $ThisLine =~ /^New internal session \(\d+\)$/) ||
+      ( $ThisLine =~ /^Server shutdown complete\.$/) ||
+      ( $ThisLine =~ /Thread/) ||
+      ( $ThisLine =~ /Started thread/) ||
+      ( $ThisLine =~ /Finished create store/) ||
+      ( $ThisLine =~ /Startup succeeded/) ||
+      ( $ThisLine =~ /Auto-deleting company/) ||
+      ( $ThisLine =~ /Started/) ||
+      ( $ThisLine =~ /^SQL \[\d+\] info: Try to reconnect$/) ||
+      ( $ThisLine =~ /^syncs table clean up done/) ||
+      ( $ThisLine =~ /^Create (?:database|table:) /) ||
+      ( $ThisLine =~ /^Database is created$/) ||
+      ( $ThisLine =~ /^Add table data for: /) ||
+      ( $ThisLine =~ /^Received signal \d+/) ||
+      ( $ThisLine =~ /^Connection to database /) ||
+      ( $ThisLine =~ /^Using commercial license serial/) ||
+      ( $ThisLine =~ /^Loading searchfolders$/) ||
+      ( $ThisLine =~ /^zarafa-server (?:shutdown in progress|signalled sig|startup uid)/) ||
+      ( $ThisLine =~ /^Replacing notification request for ID/) ||
+      ( $ThisLine =~ /^GetChanges:930 unexpected null pointer$/) ||
+      ## zarafa-licensed
+      ( $ThisLine =~ /^Base serial found:/) ||
+      ( $ThisLine =~ /^(?:Cal|Base serial) [0-9A-Z]+ found, valid for \d+ users/) ||
+      ( $ThisLine =~ /^ZCP license for \d+ users$/) ||
+      ( $ThisLine =~ /^Enabling Enterprise functions/)
+   ) {
+      # ignore
+   }
+
+   # Anzahl der erfolgreich authentifizierten User mit Sessions
+   elsif ($ThisLine =~ /^authenticate ok user/) {
+      $authOK++;
+   } elsif ($ThisLine =~ /Failed to authenticate user/) {
+      $authNotOK++;
+   } elsif ($ThisLine =~ /Starting zarafa-server/) {
+      $starts++;
+   } elsif ($ThisLine =~ /^Shutting down\.$/) {
+      $shutdowns++;
+   } elsif ($ThisLine =~ /warning/i) {
+      $ThisLine =~ s/\(attempt \d+\/\d+\)//;
+      $warnings{$ThisLine}++;
+   } elsif ($ThisLine =~ /^(Client requested license but zarafa-licensed could not be contacted)$/) {
+      $warnings{$1}++;
+   } elsif ($ThisLine =~ /error/i) {
+      $errors{$ThisLine}++;
+   } elsif ($ThisLine =~ /Unable to open Admin store/) {
+      $admstore++;
+   } elsif ($ThisLine =~ /Unique id not found/) {
+      $idNotFound++;
+   } elsif ($ThisLine =~ /SOAP_SSL_ERROR/) {
+      $sslerror++;
+   } elsif ($ThisLine =~ /^Listening for (.+) connections on (.+)$/ ) {
+      $listenFor{$1}{$2}++;
+   } elsif ($ThisLine =~ /Auto-deleting nonactive user/) {
+      $autoDeleteUser++;
+   } elsif ($ThisLine =~ /Unable to connect to database/) {
+      $connectDB++;
+   } elsif ($ThisLine =~ /syncs table clean up failed/) {
+      $syncTableFailed++;
+   } elsif ($ThisLine =~ /access allowed/) {
+      $accessAllowed++;
+   } elsif ($ThisLine =~ /Unable to find company id/) {
+      $companyID++;
+   } elsif ($ThisLine =~ /No certificate in SSL connection/) {
+      $nocert++;
+   } elsif ($ThisLine =~ /^Authentication by plugin failed for user (.*): Trying /) {
+      $authPluginFailed{$1}++;
+   } elsif  ($ThisLine =~ /^authenticate failed user=(.*) from=(.*) program=(.*)/) {
+      $authFailed{$1}{$2}{$3}++;
+   # TD: User myuser from 192.168.1.1 authenticated through User supplied password using program zarafa-gateway
+   } elsif ($ThisLine =~ /^User (.+) from ([0-9a-fA-F.:]+) authenticated through User supplied password using program (\w+)/) {
+      $authSuccessPW{$1}{$2}{$3}++;
+   # TD: User myuser from 192.168.1.1 authenticated through SSL Certificate using program zarafa-dagent
+   } elsif ($ThisLine =~ /^User (.+) from ([0-9a-fA-F.:]+) authenticated through SSL Certificate using program (\w+)/) {
+      $authSuccessSSL{$1}{$2}{$3}++;
+   } elsif ($ThisLine =~ /^access denied objectid=.* type=.* ownername=(.*) username=(.*) rights=(.*)/) {
+      $accessDenied{$1}{$2}{$3}++;
+   } elsif ($ThisLine =~ /^Unable to start server on port (.*)/) {
+      $errors{$1}++;
+   # TD: Object not found unknown user 'My user': My user not found in ldap
+   # TD: Object not found company 'My Company': My Company not found in ldap
+   } elsif ($ThisLine =~ /^(?:Object not found|Unable to resolve) (?:unknown )?(company|user|group) '(.*)': .* (not found in ldap)$/) {
+      $objects{$1}{$3}{$2}++;
+   } elsif ($ThisLine =~ /^Unable to get server details for (.*)/) {
+      $serverDetails{$1}++;
+   } elsif ($ThisLine =~ /^(Unable to move) object (user|security group) (.*)/) {
+      $objects{$1}{$3}{$2}++;
+   } elsif ($ThisLine =~ /^Unable to write attachment (.*)/) {
+      $Attachment{$1}++;
+   } elsif ($ThisLine =~ /^Cannot instantiate user plugin: (.*)/) {
+      $userPlugins{$1}++;
+   } elsif ($ThisLine =~ /^Unable to resolve object from relational attribute type (.*)/) {
+      $attrtype{$1}++;
+   } elsif ($ThisLine =~ /^Unable to setup ssl context(.*)/) {
+      $sslContext{$1}++;
+   } elsif ($ThisLine =~ /^Unable to initialize user plugin/) {
+      $initUserPlugin++;
+   } elsif ($ThisLine =~ /^Unable to retrieve list from external user source(.*)/) {
+      $retriveExternalList{$1}++;
+   } elsif ($ThisLine =~ /^Unable to create object in local database:(.*)/) {
+      $database{$1}++;
+   } elsif ($ThisLine =~ /^Unable to get company details for(.*)/) {
+      $companyDetails{$1}++;
+   } elsif ($ThisLine =~ /^Failed to load (.*)/) {
+      $failedToLoad{$1}++;
+   } elsif ($ThisLine =~ /^Still waiting for \d+ threads to exit$/) {
+      $waitingForThreads++;
+   } elsif ($ThisLine =~ /^Session (failed to shut down): (skipping clean)$/) {
+      $Sessions{$1}{$2}++;
+   # TD: Denying access to session from source '1.1.1.2' due to unmatched establishing source '2.2.2.1' 
+   } elsif ($ThisLine =~ /^(Denying access to session) from source '([0-9A-Fa-f.:]+)' (due to unmatched establishing source) '([0-9A-Fa-f.:]+)'$/) {
+      $Sessions{$1}{"$3 ($2 != $4)"}++;
+   } elsif ($ThisLine =~ /create\w+\[\d+\]: (\S+create\w+): \d+: .*: (.*)/) {
+      $UserCreated{$1}{$2}++;
+   } elsif ($ThisLine =~ /createuser\[\d+\]: User store '(.*)' created\.$/) {
+      $UserStoreCreated{$1}++;
+   } elsif ($ThisLine =~ /createcompany\[\d+\]: (Public created)\.$/) {
+      $CompanyCreated{$1}++;
+   } elsif ($ThisLine =~ /^Command '(.+)' exited with non-zero status (\d+)$/) {
+      $Commands{$1}{$2}++;
+   } elsif ($ThisLine =~ /^Finished remove store \(([0-9a-fA-F]+)\)$/) {
+      $StoreRemoved{$1}++;
+   } elsif ($ThisLine =~ /^Unhook of store \(type \d+\) with userid (\d+) and guid ([0-9a-fA-F]+) (\w+)$/) {
+      # Userid, guid, status
+      $StoreUnhooked{$1}{$2}{$3}++;
+   # TD: Create store requested, but store is not on this server, or server property not set for object 39248
+   } elsif ($ThisLine =~ /^(Create store requested, but store is not on this server, or server property not set for object) (\d+)$/) {
+     $warnings{"$1"}++;
+   # TD: SQL [00000046] result failed: Query execution was interrupted, Query: "SELECT hierarchy_id, guid, type FROM stores WHERE hierarchy_id = 216200"
+   } elsif ($ThisLine =~ /^SQL \[\d+\] (result failed|Failed): ([^,]*), (?:Query Size: \d+, )?Query:/) {
+      $SQL{"$1"}{"$2"}++;
+   # TD: ldap query failed: OU=base,DC=.. (&(zarafaAccount=1)(|(objectClass=inetOrgPerson)(objectClass=contact))) (result=0x04)
+   } elsif ($ThisLine =~ /^ldap query failed: (\S+) (\S+) \(result=(\S+)\)$/ ) {
+      # Search_base, Query, Result
+      $LDAPQueryFailed{$1}{$2}{lc($3)}++;
+   # TD: Unable to retrieve details from external user source: ldap_search_ext_s: Size limit exceeded
+   } elsif ($ThisLine =~ /^(Unable to retrieve details from external user source): (ldap_search_ext_s): (.*)$/) {
+      $LDAPQueryFailed{$1}{$2}{$3}++;
+   # TD: Client update: trackid: 0x1BD621AD, computername: PC2002NB, username: xy1, clientversion: 7.1.7.43126, windowsversion: 6.2.9200.0, iplist: 192.168.233.1, 192.168.136.1, soapip: 192.168.1.194 
+   } elsif ($ThisLine =~ /^Client update: trackid: 0x[0-9A-Fa-f]+, computername: (.*), username: (.*), clientversion: ([0-9.-]+), windowsversion: ([0-9.]+), iplist: ([a-fA-F0-9.: ,]+), soapip: ([a-fA-F0-9.:]+)$/ ) {
+      # 1: computername, 2: username, 3: clientversion,
+      # 4: winversion, 5: clientip, 6: serverip
+      $clientUpdate{"$3"}{"$2 ($6)"}{"$1 ($5) [Windows: $4]"}++;
+
+   # TD: Client update: trackid: 0x638C04F3, Log files saved in '/var/log/zarafa/autoupdate/0x638C04F3/'
+   } elsif ($ThisLine =~ /^Client update: trackid: 0x[0-9A-Fa-f]+, Log files saved in '([^']+)'/) {
+      $clientUpdateLogs{"$1"}++;
+   
+   # TD: Client update: trackid: 0x49DA0768, Sending new installer zarafaclient-7.1.7-43126.msi
+   # TD: Client update: trackid: 0x49DA0768, Installed successfully updated
+   # These two are only visible with log_level > 2: ignore them
+   } elsif ($ThisLine =~ /^Client update: trackid: 0x[0-9A-Fa-f]+, (?:Sending new installer|Installed successfully updated)/) {
+      # ignore
+   # TD: GetChanges:671 The sync ID 5764 does not exist. (unexpected null pointer) session user name: myuser
+   } elsif ($ThisLine =~ /^GetChanges:671 The sync ID \d+ does not exist. \(unexpected null pointer\) session user name: (\S+)\.$/) {
+      $outlookSync{$1}++;
+
+   # Search
+   # TD: Error while querying indexer on file:///var/run/zarafa-search, 0x80000024
+   } elsif ($ThisLine =~ /^Error while querying indexer on (.*), (0x\d{8})$/) {
+      $IndexerError{$1}{lc($2)}++;
+
+   ## zarafa-licensed
+   # TD: Starting zarafa-licensed version 7,1,7,42779 (42779), pid 1640
+   } elsif ($ThisLine =~ /^Starting zarafa-licensed version [0-9,]+ \(\d+\), pid \d+$/) {
+      $licensed_starts++;
+   # TD: Exiting
+   } elsif ($ThisLine =~ /^Exiting$/) {
+      $licensed_shutdowns++;
+   # TD: Unable to get row count on server 'file:///var/run/zarafa-prio': 0x80040115
+   } elsif ($ThisLine =~ /^Unable to get row count on server '.*': (0x[0-9A-F]{8})$/) {
+      $errors{lc($1) .": zarafa-search: Unable to get row count"}++;
+   # TD: Unable to connect to zarafa server on 'file:///var/run/zarafa-prio': 0x80040115
+   } elsif ($ThisLine =~ /^Unable to connect to zarafa server on '.*': (0x[0-9A-F]{8})$/) {
+      $errors{lc($1) .": zarafa-search: Unable to connect to zarafa-server"}++;
+   # TD: SSL_accept() failed in soap_ssl_accept()
+   } elsif ($ThisLine =~ /^SSL_accept\(\) failed/) {
+      $errors{$ThisLine}++;
+
+   } else {
+      # Report any unmatched entries...
+      $OtherList{$ThisLine}++;
+   }
+}
+
+## OUTPUT ##
+
+# \t = 8 chars
+# %-56s: %5i Time(s)
+
+if ($starts) {
+   printf "  %8i   %-36s\n", $starts, 'zarafa-server starts';
+}
+if ($shutdowns) {
+   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-server shutdowns';
+}
+if ($licensed_starts) {
+   printf "  %8i   %-36s\n", $licensed_starts, 'zarafa-licensed starts';
+}
+if ($licensed_shutdowns) {
+   printf "  %8i   %-36s\n", $licensed_shutdowns, 'zarafa-licensed shutdowns';
+}
+if ($authOK) {
+   printf "  %8i   %-36s\n", $authOK, 'successfull authentications';
+}
+if ($authNotOK) {
+   printf "  %8i   %-36s\n", $authNotOK, 'denied authentications';
+}
+
+if ($starts or $shutdowns or $licensed_starts or $licensed_shutdowns or
+    $authOK or $authNotOK) {
+   print_doubleline();
+}
+if (keys %warnings) {
+   print_hash(\%warnings, 'Warnings');
+   print "\n";
+}
+if (keys %errors) {
+   print_hash(\%errors, 'Errors');
+   print "\n";
+}
+if ($connectDB) {
+   printf "  %8i   %-36s\n", $connectDB, 'Unable to Connect to Database';
+}
+if ($syncTableFailed) {
+   printf "  %8i   %-36s\n", $syncTableFailed, 'syncs table clean up failed';
+}
+if ($admstore) {
+   printf "  %8i   %-36s\n", $admstore, 'Unable to access admin store';
+}
+if ($companyID) {
+   printf "  %8i   %-36s\n", $companyID, 'Unable to find company id';
+}
+if ($nocert) {
+   printf "  %8i   %-36s\n", $nocert, 'No certificate in SSL connection';
+}
+if ($sslerror) {
+   printf "  %8i   %-36s\n", $sslerror, 'SOAP_SSL_ERROR';
+}
+if ($initUserPlugin) {
+   printf "  %8i   %-36s\n", $initUserPlugin, 'Unable to initialize user plugin';
+}
+if ($idNotFound) {
+   printf "  %8i   %-36s\n", $idNotFound, 'Unique id not found';
+}
+if ($autoDeleteUser) {
+   printf "  %8i   %-36s\n", $autoDeleteUser, 'Auto-deleting nonactive users';
+}
+if ($waitingForThreads) {
+   printf "  %8i   %-36s\n", $waitingForThreads, 'Waiting for threads to exit';
+}
+
+if ($accessAllowed) { print_doubleline(); }
+if ($accessAllowed) {
+   printf "  %8i   %-36s\n", $accessAllowed, 'access allowed';
+}
+
+print_asterisks();
+
+if (keys %Commands) {
+   print_2xhash(\%Commands, "Command exited with non-zero status");
+}
+
+if (keys %authPluginFailed) {
+   print_hash(\%authPluginFailed, "Authentication by plugin failed");
+}
+
+if (keys %authFailed) {
+   print_3xhash(\%authFailed, "Authentication failed by user, by IP, by program");
+}
+
+if ($Detail > 5) {
+   if (keys %authSuccessPW) {
+      print_3xhash(\%authSuccessPW, "User authenticated through User supplied password");
+   }
+   
+   if (keys %authSuccessSSL) {
+      print_3xhash(\%authSuccessSSL, "User authenticated through SSL Certificate");
+   }
+}
+
+if (keys %companyDetails) {
+   print_hash(\%companyDetails, "Unable to get company details for");
+}
+
+if (keys %retriveExternalList) {
+   print_hash(\%retriveExternalList, "Unable to retrieve list from external user source");
+}
+
+if (keys %database) {
+   print_hash(\%database, "Unable to create object in local database");
+}
+
+if (keys %attrtype) {
+   print_hash(\%attrtype, "Unable to resolve object from relational attribute type");
+}
+
+if (keys %objects) {
+   print_3xhash(\%objects, 'Objects');
+}
+
+if (keys %userPlugins) {
+   print_hash(\%userPlugins, "Cannot instantiate user plugin");
+}
+
+if (keys %serverDetails) {
+   print_hash(\%serverDetails, "Unable to get server details");
+}
+
+if (keys %sslContext) {
+   print_hash(\%sslContext, "Unable to setup ssl context");
+}
+
+if (keys %Attachment) {
+   print_hash(\%Attachment, "Unable to write attachment");
+}
+
+if (keys %accessDenied) {
+   print_3xhash(\%accessDenied, "access denied for ownername, username, rights");
+}
+
+if (keys %failedToLoad) {
+   print_hash(\%failedToLoad, "Failed to load");
+}
+
+## Stores ##
+if (keys %UserStoreCreated) {
+   print_hash(\%UserStoreCreated, "User store created");
+}
+
+if (keys %StoreRemoved) {
+   print_hash(\%StoreRemoved, "User store removed");
+}
+
+if (keys %StoreUnhooked) {
+   print_3xhash(\%StoreUnhooked, "Store unhooked");
+}
+
+## Users ##
+if (keys %UserCreated) {
+   print_2xhash(\%UserCreated, "Createuser script");
+}
+
+if (keys %CompanyCreated) {
+   print_hash(\%CompanyCreated, "Createcompany script");
+}
+
+## SQL ##
+if (keys %SQL) {
+   print_2xhash(\%SQL, "SQL");
+}
+
+## LDAP ##
+if (keys %LDAPQueryFailed) {
+   print_3xhash(\%LDAPQueryFailed, "LDAP Query Failed");
+}
+
+## Session ##
+if (keys %Sessions) {
+   print_2xhash(\%Sessions, "Sessions");
+}
+
+## Client ##
+if (keys %clientUpdate) {
+   print_3xhash(\%clientUpdate, "Client Update initiated");
+}
+
+if (keys %clientUpdateLogs) {
+  print_hash(\%clientUpdateLogs, "Client Update, Log files saved");
+}
+
+if (keys %outlookSync) {
+  print_hash(\%outlookSync, "Outlook profile synchronisation out of sync");
+}
+
+## Indexer ##
+if (keys %IndexerError) {
+   print_2xhash(\%IndexerError, "Indexer query failed");
+}
+
+if (keys %OtherList) {
+   print "\n**** Unmatched entries ****\n";
+   foreach my $Error (keys %OtherList) {
+      print "    $Error : $OtherList{$Error} Time(s)\n";
+   }
+}
+

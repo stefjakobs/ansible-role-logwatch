@@ -1,0 +1,245 @@
+# $Id: zarafa-search,v 1.4 2014/11/07 10:20:08 rusjako Exp $
+###########################################################################
+# This was written and is maintained by:
+#    Stefan Jakobs <logwatch at localside.net>
+#
+# Please send all comments, suggestions, bug reports,
+#    etc, to logwatch at localside.net.
+###########################################################################
+# Copyright (c) 2013 Stefan Jakobs
+# Covered under the included MIT/X-Consortium License:
+#    http://www.opensource.org/licenses/mit-license.php
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+# CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+###########################################################################
+
+use warnings;
+use strict;
+
+my $Detail      = $ENV{'LOGWATCH_DETAIL_LEVEL'} || 0;
+my $Version     = "1.0-20140110";
+
+# initialize logwatch variables 
+my $ThisLine    = "";
+my %OtherList   = ();
+
+# other variables
+my ($starts, $shutdowns) = ( 0, 0);
+my (%actions, %threads);
+my (%errors, %warnings);
+my $timing_max   = 0;
+my $timing_min   = 99999;
+my $timing_total = 0;
+my $opt_runs     = 0;
+
+### Functions ###
+
+sub print_asterisks() {
+   printf "\n  ******** Details (%2i) ***************************************\n", $Detail;
+}
+
+sub print_line() {
+   print  "  --------   --------------------------------------------------\n";
+}
+
+sub print_doubleline() {
+   print  "  ========   ==================================================\n\n";
+}
+
+sub print_hash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$hash{$b} <=> $hash{$a}} keys %hash) {
+      $out .= sprintf "  %8i      %s\n", $hash{$item}, $item;
+      $sum += $hash{$item};
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_2xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp $b} keys %hash) {
+         my $out2 = "";
+         my $sum2 = 0;
+         foreach my $item2 (sort {$hash{$item}{$b} <=> $hash{$item}{$a}} keys %{$hash{$item}}) {
+            $out2 .= sprintf "  %8i         %s\n", $hash{$item}{$item2}, $item2;
+            $sum2 += $hash{$item}{$item2};
+         }
+         $out .= sprintf "  %8i      %s\n", $sum2, $item;
+         $sum += $sum2;
+         if ($Detail > 9) { $out .= $out2; }
+      }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+sub print_3xhash($$) {
+   my $out = "";
+   my $sum = 0;
+   my %hash = %{$_[0]};
+   my $desc = $_[1];
+   foreach my $item (sort {$a cmp  $b} keys %hash) {
+      my $out2 = "";
+      my $sum2 = 0;
+      foreach my $item2 (sort {$a cmp $b} keys %{$hash{$item}}) {
+         my $out3 = "";
+         my $sum3 = 0;
+         foreach my $item3 (sort {$hash{$item}{$item2}{$b} <=> $hash{$item}{$item2}{$a}} keys %{$hash{$item}{$item2}}) {
+            $out3 .= sprintf "  %8i            %s\n", $hash{$item}{$item2}{$item3}, $item3;
+            $sum3 += $hash{$item}{$item2}{$item3};
+         }
+         $out2 .= sprintf "  %8i         %s\n", $sum3, $item2;
+         $sum2 += $sum3;
+         if ($Detail > 9) { $out2 .= $out3; }
+      }
+      $out .= sprintf "  %8i      %s\n", $sum2, $item;
+      $sum += $sum2;
+      if ($Detail > 4) { $out .= $out2; }
+   }
+   printf "\n  %8i   %-36s\n", $sum, $desc;
+   if ($Detail > 4) {
+      printf "$out";
+   }
+}
+
+
+### Parse the lines ###
+
+while (defined($ThisLine = <STDIN>)) {
+   chomp($ThisLine);
+
+   if (
+      ( $ThisLine  =~ /^Stopping Zarafa search/) ||
+      ( $ThisLine  =~ /^Optimizing index .*\.kct$/)
+   ) {
+      # ignore
+   }
+
+   # TD: Termination requested, shutting down.
+   elsif ($ThisLine =~ /^Termination requested, shutting down\.$/) {
+      $shutdowns++;
+   }
+   # TD: Starting zarafa-search version 7,1,7,42779 (42779), pid 1711
+   elsif ($ThisLine =~ /^Starting zarafa-search version ([0-9,]+) \(\d+\), pid \d+$/) {
+      $starts++;
+   }
+   # TD: Starting to cleanup and optimize index files
+   elsif ($ThisLine =~ /^Starting to cleanup and optimize index files$/) {
+      $actions{'start optimization'}++;
+   }
+   # TD: Stopping index optimization
+   elsif ($ThisLine =~ /^Stopping index optimization$/) {
+      $actions{'stop optimization'}++;
+   }
+   # TD: Search thread started
+   elsif ($ThisLine =~ /^Search thread (started|done)/) {
+      $threads{$1}++;
+   }
+   # TD: Optimized index in 8 seconds
+   elsif ($ThisLine =~ /^Optimized index in (\d+) seconds$/) {
+      my $value = $1;
+      if ($value > $timing_max) { $timing_max = $value; }
+      if ($value < $timing_min) { $timing_min = $value; }
+      $opt_runs++;
+      $timing_total += $value;
+   }
+   # TD: Detect removed store 9BB1FE4F5C1A484897271836A682BCF9, start to cleanup index
+   elsif ($ThisLine =~ /^Detect removed store [a-fA-F0-9]+, start to cleanup index$/) {
+      $actions{'removed store: cleanup index'}++
+   }
+
+   ## Errors
+   # TD: Unable to contact zarafa server file:///var/run/zarafa: 80040115. Will retry.
+   elsif ($ThisLine =~ /^(.*): ([0-9A-F]{8})/) {
+      $errors{$2}{$1}++;
+   }
+
+   ## Warnings
+   # TD: Store indexing failed
+   elsif ($ThisLine =~ /^(Store indexing failed)$/) {
+      $warnings{$1}++;
+   }
+   
+   # Report any unmatched entries...
+   else {
+      $OtherList{$ThisLine}++;
+   }
+}
+
+## OUTPUT ##
+
+# \t = 8 chars
+# %-56s: %5i Time(s)
+
+if ($starts) {
+   printf "  %8i   %-36s\n", $starts, 'zarafa-search starts';
+}
+if ($shutdowns) {
+   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-search shutdowns';
+}
+
+if ($timing_total) {
+   print "\n";
+   printf "  %8is  %-36s\n", $timing_min, 'minimal optimization time';
+   printf "  %8is  %-36s\n", $timing_max, 'maximal optimization time';
+   printf "  %8.2fs  %-36s\n", $timing_total/$opt_runs, 'average optimization time';
+   print_line();
+   printf "  %8is  %-36s\n", $timing_total, 'total optimization time';
+   print "\n";
+   printf "  %8i   %-36s\n", $opt_runs, 'optimazation runs';
+}
+
+if ($starts or $shutdowns or $timing_total) { 
+   print_doubleline();
+}
+if (keys %warnings) {
+   print_hash(\%warnings, 'Warnings');
+}
+if (keys %errors) {
+   print_2xhash(\%errors, 'Errors');
+}
+
+if (keys %actions or keys %threads) {
+   print_asterisks();
+}
+
+if (keys %actions) {
+   print_hash(\%actions, 'Actions');
+}
+
+if (keys %threads) {
+   print_hash(\%threads, 'Search Threads');
+}
+
+if (keys %OtherList) {
+   print "\n**** Unmatched entries ****\n";
+   foreach my $Error (keys %OtherList) {
+      print "    $Error : $OtherList{$Error} Time(s)\n";
+   }
+}
+

@@ -1,0 +1,48 @@
+---
+- name: install logwatch
+  apt: name=logwatch state=present
+
+- name: copy zarafa service scripts
+  copy:
+    src: "{{ item }}"
+    dest: /etc/logwatch/scripts/services/{{ item }}
+    owner: 'root'
+    group: 'root'
+    mode: '0755'
+  with_items:
+    - zarafa-dagent
+    - zarafa-gateway
+    - zarafa-monitor
+    - zarafa-search
+    - zarafa-server
+    - zarafa-spooler
+
+- name: copy zarafa service config
+  copy:
+    src: "{{ item }}.conf.service"
+    dest: /etc/logwatch/conf/services/{{ item }}.conf
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
+  with_items:
+    - zarafa-dagent
+    - zarafa-gateway
+    - zarafa-monitor
+    - zarafa-search
+    - zarafa-server
+    - zarafa-spooler
+
+- name: copy zarafa logfile config
+  copy:
+    src: "{{ item }}.conf.logfile"
+    dest: /etc/logwatch/conf/logfiles/{{ item }}.conf
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
+  with_items:
+    - zarafa-dagent
+    - zarafa-gateway
+    - zarafa-monitor
+    - zarafa-search
+    - zarafa-server
+    - zarafa-spooler
