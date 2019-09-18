@@ -151,7 +151,9 @@ while (defined($ThisLine = <STDIN>)) {
    if (
       ( $ThisLine =~ /^(?:POP3\/IMAP|CalDAV) Gateway will now exit$/) ||
       ( $ThisLine =~ /^Listening on port \d{1,5}/) ||
-      ( $ThisLine =~ /^Connection waiting on secure port \d{1,5}$/)
+      ( $ThisLine =~ /^Listening on [0-9.*]+:[0-9]{1,5} for (imap|pop3)/) ||
+      ( $ThisLine =~ /^Connection waiting on secure port \d{1,5}$/) ||
+      ( $ThisLine =~ /^ECChannel::HrEnableTLS\(\): SSL_accept failed/)
    ) {
       # ignore
    }
@@ -161,7 +163,8 @@ while (defined($ThisLine = <STDIN>)) {
       $shutdowns++;
    }
    # TD: Starting zarafa-gateway version 7,1,8,43454 (43454), pid 13886
-   elsif ($ThisLine =~ /^Starting zarafa-gateway version ([0-9,]+) \(\d+\), pid \d+$/) {
+   # TD: Starting kopano-gateway version 8.7.81 (pid 17602 uid 998)
+   elsif ($ThisLine =~ /^Starting (?:zarafa-gateway|kopano-gateway) version ([0-9,.]+) (?:\(\d+\), pid \d+|\(pid \d+ uid \d+\))$/) {
       $starts++;
    }
    # TD: CalDAV Gateway shutdown complete
@@ -189,7 +192,8 @@ while (defined($ThisLine = <STDIN>)) {
       $clients{'connection error'}++;
    }
    # TD: IMAP Login from 127.0.0.1 for user myuser
-   elsif ($ThisLine =~ /^(POP3|IMAP) Login from ([a-fA-F0-9.:]+) for user (\S+)$/) {
+   # TD: IMAP Login from [[::ffff:192.168.8.94]:50192] for user "myuser"
+   elsif ($ThisLine =~ /^(POP3|IMAP) Login from \[?([a-fA-F0-9.:\[\]]+?)(?::[0-9]{4,5}\])? for user "?(\S+)"?$/) {
       $logins{"Succeeded: $1"}{$2}{$3}++;
    }
    # TD: Failed to login from 127.0.0.1 with invalid username "ac000900" or wrong password. Error: 0x80040115
@@ -202,11 +206,13 @@ while (defined($ThisLine = <STDIN>)) {
       $logins{'too many erroneous commands'}{$1}{$2}++;
    }
    # TD: Client 127.0.0.1 thread exiting
-   elsif ($ThisLine =~ /^Client ([a-fA-F0-9.:]+) thread exiting$/) {
+   # TD: Client [::ffff:192.168.8.94]:50192 thread exiting
+   elsif ($ThisLine =~ /^Client \[?([a-fA-F0-9.:\[\]]+?)(?::[0-9]{4,5}\])? thread exiting$/) {
       $threads{'exits'}{$1}++;
    }
    # TD: Starting worker process for POP3 request
-   elsif ($ThisLine =~ /^Starting worker (?:process|thread) for (POP3|IMAP) request$/) {
+   # TD: Starting worker thread for IMAPs request
+   elsif ($ThisLine =~ /^Starting worker (?:process|thread) for (POP3s?|IMAPs?) request$/) {
       $workers{$1}{'starts'}++;
    }
 
@@ -269,7 +275,11 @@ while (defined($ThisLine = <STDIN>)) {
    }
    # TD: Error switching to SSL in STARTTLS
    elsif ($ThisLine =~ /^(Error switching to SSL in STARTTLS)$/) {
-      $errors{"$1"}{''}++
+      $errors{"$1"}{''}++;
+   }
+   # TD: Unable to negotiate SSL connection
+   elsif ($ThisLine =~ /^(Unable to negotiate SSL connection)$/) {
+      $errors{"$1"}{''}++;
    }
    # TD: Error converting MAPI to MIME: 0x8004010f
    elsif ($ThisLine =~ /^(Error converting MAPI to MIME): (0x[a-fA-F0-9]{8})$/) {

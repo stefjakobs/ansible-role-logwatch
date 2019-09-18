@@ -132,6 +132,7 @@ while (defined($ThisLine = <STDIN>)) {
 
    if (
       ( $ThisLine  =~ /^Connection to Zarafa server succeeded/) ||
+      ( $ThisLine  =~ /^Log connection was reset/) ||
       ( $ThisLine  =~ /^Empty row in OutgoingQueue$/)
    ) {
       # ignore
