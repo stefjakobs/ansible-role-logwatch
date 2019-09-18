@@ -1,5 +1,5 @@
 ###########################################################################
-# $Id: zarafa-server.conf.service,v 1.2 2014/01/13 14:05:08 rusjako Exp $
+# $Id: kopano-server.conf.service,v 1.2 2014/01/13 14:05:08 rusjako Exp $
 ###########################################################################
 
 # You can put comments anywhere you want to.  They are effective for the
@@ -12,13 +12,13 @@
 # Yes = True  = On  = 1
 # No  = False = Off = 0
 
-Title = "zarafa-server"
+Title = "kopano-server"
 
 # Which logfile group...
 LogFile = zarafa-server
 
 # Only give lines pertaining to the syslogd service...
-*OnlyService = "zarafa-(?:server|licensed)\[[0-9]*\]"
+*OnlyService = "kopano-(?:server|licensed)\[[0-9]*\]"
 *RemoveHeaders
 
 ########################################################

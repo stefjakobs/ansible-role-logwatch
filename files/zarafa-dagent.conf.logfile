@@ -1,5 +1,5 @@
 ##########################################################################
-# $Id: zarafa-dagent.conf.logfile,v 1.1 2014/01/10 16:35:43 rusjako Exp $
+# $Id: kopano-dagent.conf.logfile,v 1.1 2014/01/10 16:35:43 rusjako Exp $
 ##########################################################################
 
 ########################################################
@@ -12,13 +12,13 @@
 
 # What actual file?  Defaults to LogPath if not absolute path....
 LogFile =
-LogFile = zarafa/dagent.log
+LogFile = kopano/dagent.log
 
 # If the archives are searched, here is one or more line
 # (optionally containing wildcards) that tell where they are...
 #If you use a "-" in naming add that as well -mgt
 Archive =
-Archive = zarafa/alt/dagent.log-*
+Archive = kopano/dagent.log-*
 
 
 # Keep only the lines in the proper date range...

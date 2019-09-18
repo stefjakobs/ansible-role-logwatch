@@ -1,5 +1,5 @@
 ###########################################################################
-# $Id: zarafa-search.conf.service,v 1.1 2014/01/13 13:26:44 rusjako Exp $
+# $Id: kopano-search.conf.service,v 1.1 2014/01/13 13:26:44 rusjako Exp $
 ###########################################################################
 
 # You can put comments anywhere you want to.  They are effective for the
@@ -12,13 +12,13 @@
 # Yes = True  = On  = 1
 # No  = False = Off = 0
 
-Title = "zarafa-search"
+Title = "kopano-search"
 
 # Which logfile group...
 LogFile = zarafa-search
 
 # Only give lines pertaining to the syslogd service...
-*OnlyService = "zarafa-search\[[0-9]*\]"
+*OnlyService = "kopano-search\[[0-9]*\]"
 *RemoveHeaders
 
 ########################################################

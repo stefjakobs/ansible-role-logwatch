@@ -1,5 +1,5 @@
 ##########################################################################
-# $Id: zarafa-monitor.conf.logfile,v 1.1 2014/06/26 13:49:38 rusjako Exp $
+# $Id: kopano-monitor.conf.logfile,v 1.1 2014/06/26 13:49:38 rusjako Exp $
 ##########################################################################
 
 ########################################################
@@ -12,13 +12,13 @@
 
 # What actual file?  Defaults to LogPath if not absolute path....
 LogFile =
-LogFile = zarafa/monitor.log
+LogFile = kopano/monitor.log
 
 # If the archives are searched, here is one or more line
 # (optionally containing wildcards) that tell where they are...
 #If you use a "-" in naming add that as well -mgt
 Archive =
-Archive = zarafa/alt/monitor.log-*
+Archive = kopano/monitor.log-*
 
 
 # Keep only the lines in the proper date range...
