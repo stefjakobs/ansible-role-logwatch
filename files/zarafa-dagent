@@ -188,8 +188,8 @@ while (defined($ThisLine = <STDIN>)) {
    elsif ($ThisLine =~ /^LMTP service shutdown complete$/) {
       $shutdowns++;
    }
-   # TD: Starting zarafa-dagent LMTP mode version 7,1,7,42779 (42779), pid 11153
-   elsif ($ThisLine =~ /^Starting zarafa-dagent LMTP mode version ([0-9,]+) \(\d+\), pid \d+$/) {
+   # TD: Starting kopano-dagent version 8.7.82 (pid 5025 uid 998) (LMTP mode)
+   elsif ($ThisLine =~ /^Starting kopano-dagent version ([0-9.]+) \(pid \d+\ uid \d+\) \(LMTP mode\)$/) {
       $starts++;
    }
    # TD: Message canceled by rule

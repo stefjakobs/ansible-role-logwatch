@@ -153,7 +153,10 @@ while (defined($ThisLine = <STDIN>)) {
       ( $ThisLine =~ /^Listening on port \d{1,5}/) ||
       ( $ThisLine =~ /^Listening on [0-9.*]+:[0-9]{1,5} for (imap|pop3)/) ||
       ( $ThisLine =~ /^Connection waiting on secure port \d{1,5}$/) ||
-      ( $ThisLine =~ /^ECChannel::HrEnableTLS\(\): SSL_accept failed/)
+      ( $ThisLine =~ /^ECChannel::HrEnableTLS\(\): SSL_accept failed/) ||
+      ( $ThisLine =~ /^HrLogon server/) ||
+      ( $ThisLine =~ /^Waiting for \d+ processes\/threads to exit/) ||
+      ( $ThisLine =~ /^gsoap connect: /)
    ) {
       # ignore
    }
@@ -162,17 +165,16 @@ while (defined($ThisLine = <STDIN>)) {
    elsif ($ThisLine =~ /^POP3\/IMAP Gateway shutdown complete$/) {
       $shutdowns++;
    }
-   # TD: Starting zarafa-gateway version 7,1,8,43454 (43454), pid 13886
    # TD: Starting kopano-gateway version 8.7.81 (pid 17602 uid 998)
-   elsif ($ThisLine =~ /^Starting (?:zarafa-gateway|kopano-gateway) version ([0-9,.]+) (?:\(\d+\), pid \d+|\(pid \d+ uid \d+\))$/) {
+   elsif ($ThisLine =~ /^Starting kopano-gateway version ([0-9,.]+) \(pid \d+ uid \d+\)$/) {
       $starts++;
    }
    # TD: CalDAV Gateway shutdown complete
    elsif ($ThisLine =~ /^CalDAV Gateway shutdown complete$/) {
       $ical_shutdowns++;
    }
-   # TD: Starting zarafa-ical version 7,1,7,42779 (42779), pid 1800
-   elsif ($ThisLine =~ /^Starting zarafa-ical version ([0-9,]+) \(\d+\), pid \d+$/) {
+   # TD: Starting kopano-ical version 8.7.82 (pid 5030 uid 998)
+   elsif ($ThisLine =~ /^Starting kopano-ical version ([0-9,.]+) \(pid \d+ uid \d+\)$/) {
       $ical_starts++;
    }
    # TD: Disconnecting client
@@ -193,12 +195,14 @@ while (defined($ThisLine = <STDIN>)) {
    }
    # TD: IMAP Login from 127.0.0.1 for user myuser
    # TD: IMAP Login from [[::ffff:192.168.8.94]:50192] for user "myuser"
-   elsif ($ThisLine =~ /^(POP3|IMAP) Login from \[?([a-fA-F0-9.:\[\]]+?)(?::[0-9]{4,5}\])? for user "?(\S+)"?$/) {
+   elsif ($ThisLine =~ /^(POP3|IMAP) Login from \[?([a-fA-F0-9.:\[\]]+?)(?::[0-9]{4,5}\])? for user "?([^"\s]+)"?$/) {
       $logins{"Succeeded: $1"}{$2}{$3}++;
    }
    # TD: Failed to login from 127.0.0.1 with invalid username "ac000900" or wrong password. Error: 0x80040115
-   elsif ($ThisLine =~ /^Failed to login from ([a-fA-F0-9.:]+) with invalid username \"([^"]+)\" or wrong password. Error: (0x[a-fA-F0-9]{8})$/) {
-      $logins{'Failed'}{$1}{$2}++;
+   # TD: Failed to login from [192.168.2.10:34466] with invalid username "stefan" or wrong password: network error (80040115)
+   # TD: Failed to login from [127.0.0.1:33314] with invalid username "webmaster" or wrong password: logon failed (80040111)
+   elsif ($ThisLine =~ /^Failed to login from \[?([a-fA-F0-9.:]+)\]? with invalid username \"([^"]+)\" or wrong password[.:] (?:network )?(?:[Ee]rror:?|logon failed) \(?([a-fA-F0-9]{8,10})\)?$/) {
+      $logins{'Failed'}{split(':',$1)}{$2}++;
       $errors{'Failed to login'}{lc($3)}++;
    }
    # TD: Disconnecting client of user myuser because too many (10) erroneous commands received, last reply:
@@ -280,6 +284,10 @@ while (defined($ThisLine = <STDIN>)) {
    # TD: Unable to negotiate SSL connection
    elsif ($ThisLine =~ /^(Unable to negotiate SSL connection)$/) {
       $errors{"$1"}{''}++;
+   }
+   # TD: Unable to negotiate SSL connection with 192.168.1.20:12345
+   elsif ($ThisLine =~ /^(Unable to negotiate SSL connection) with ([a-f0-9.:]*):[0-9]{1,5}$/) {
+      $errors{"$1"}{"$2"}++;
    }
    # TD: Error converting MAPI to MIME: 0x8004010f
    elsif ($ThisLine =~ /^(Error converting MAPI to MIME): (0x[a-fA-F0-9]{8})$/) {

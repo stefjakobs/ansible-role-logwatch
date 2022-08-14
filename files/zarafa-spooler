@@ -142,8 +142,8 @@ while (defined($ThisLine = <STDIN>)) {
    elsif ($ThisLine =~ /^Spooler shutdown complete$/) {
       $shutdowns++;
    }
-   # TD: Starting zarafa-dagent LMTP mode version 7,1,7,42779 (42779), pid 11153
-   elsif ($ThisLine =~ /^Starting zarafa-spooler version ([0-9,]+) \(\d+\), pid \d+$/) {
+   # TD: Starting kopano-spooler version 8.7.82 (pid 5040 uid 0)
+   elsif ($ThisLine =~ /^Starting kopano-spooler version ([0-9.,]+) \(pid \d+\ uid \d+\)$/) {
       $starts++;
    }
    # TD: Sending e-mail for user myuser, subject: 'foobar', size: 9719
@@ -258,10 +258,10 @@ while (defined($ThisLine = <STDIN>)) {
 # %-56s: %5i Time(s)
 
 if ($starts) {
-   printf "  %8i   %-36s\n", $starts, 'zarafa-spooler starts';
+   printf "  %8i   %-36s\n", $starts, 'kopano-spooler starts';
 }
 if ($shutdowns) {
-   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-spooler shutdowns';
+   printf "  %8i   %-36s\n", $shutdowns, 'kopano-spooler shutdowns';
 }
 
 if ($starts or $shutdowns) { 

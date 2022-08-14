@@ -183,8 +183,8 @@ while (defined($ThisLine = <STDIN>)) {
       ( $ThisLine =~ /^Received signal \d+/) ||
       ( $ThisLine =~ /^Connection to database /) ||
       ( $ThisLine =~ /^Using commercial license serial/) ||
-      ( $ThisLine =~ /^Loading searchfolders$/) ||
-      ( $ThisLine =~ /^zarafa-server (?:shutdown in progress|signalled sig|startup uid)/) ||
+      ( $ThisLine =~ /^(?:Done )?[Ll]oading search ?folders\.?$/) ||
+      ( $ThisLine =~ /^server (?:shutdown in progress|signalled sig|startup uid)/) ||
       ( $ThisLine =~ /^Replacing notification request for ID/) ||
       ( $ThisLine =~ /^GetChanges:930 unexpected null pointer$/) ||
       ( $ThisLine =~ /^Log connection was reset$/) ||
@@ -192,8 +192,10 @@ while (defined($ThisLine = <STDIN>)) {
       ( $ThisLine =~ /^Start (?:scheduled softdelete|syncedmessages table|syncs table) clean up$/) ||
       ( $ThisLine =~ /^Start to purge \d+ messages$/) ||
       ( $ThisLine =~ /^Message purge done$/) ||
+      ( $ThisLine =~ /^Querying database for searchfolders. This may take a while.$/) ||
+      ( $ThisLine =~ /^Waiting for (?:mysql_server_end|mysql_library_end)$/) ||
 
-      ## zarafa-licensed
+      ## kopano-licensed
       ( $ThisLine =~ /^Base serial found:/) ||
       ( $ThisLine =~ /^(?:Cal|Base serial) [0-9A-Z]+ found, valid for \d+ users/) ||
       ( $ThisLine =~ /^ZCP license for \d+ users$/) ||
@@ -207,14 +209,14 @@ while (defined($ThisLine = <STDIN>)) {
       $authOK++;
    } elsif ($ThisLine =~ /Failed to authenticate user/) {
       $authNotOK++;
-   } elsif ($ThisLine =~ /Starting zarafa-server/) {
+   } elsif ($ThisLine =~ /Starting kopano-server/) {
       $starts++;
-   } elsif ($ThisLine =~ /^Shutting down\.$/) {
+   } elsif ($ThisLine =~ /^Shutting down\.?$/) {
       $shutdowns++;
    } elsif ($ThisLine =~ /warning/i) {
       $ThisLine =~ s/\(attempt \d+\/\d+\)//;
       $warnings{$ThisLine}++;
-   } elsif ($ThisLine =~ /^(Client requested license but zarafa-licensed could not be contacted)$/) {
+   } elsif ($ThisLine =~ /^(Client requested license but kopano-licensed could not be contacted)$/) {
       $warnings{$1}++;
    } elsif ($ThisLine =~ /error/i) {
       $errors{$ThisLine}++;
@@ -242,8 +244,10 @@ while (defined($ThisLine = <STDIN>)) {
       $authPluginFailed{$1}++;
    # TD: kopano-server[715]: authenticate ok: from="file:///var/run/kopano/server.sock" user="SYSTEM" method="Pipe socket" program="kopano-stats" sid=0x5b79e9259c28e02
    } elsif  ($ThisLine =~ /^authenticate ok: from="([^"]*)" user="([^"]*)" method="([^"]*)" program="([^"]*?)"/) {
-      $authOK++;
-      $authSuccess{"$3: $1"}{$2}{$4}++;
+      if ($3 ne 'Pipe socket') {
+         $authOK++;
+         $authSuccess{"$3: $1"}{$2}{$4}++;
+      }
    } elsif  ($ThisLine =~ /^authenticate failed user=(.*) from=(.*) program=(.*)/) {
       $authFailed{$1}{$2}{$3}++;
    # TD: User myuser from 192.168.1.1 authenticated through User supplied password using program zarafa-gateway
@@ -347,19 +351,19 @@ while (defined($ThisLine = <STDIN>)) {
    } elsif ($ThisLine =~ /^Error while querying indexer on (.*), (0x\d{8})$/) {
       $IndexerError{$1}{lc($2)}++;
 
-   ## zarafa-licensed
+   ## kopano-licensed
    # TD: Starting zarafa-licensed version 7,1,7,42779 (42779), pid 1640
-   } elsif ($ThisLine =~ /^Starting zarafa-licensed version [0-9,]+ \(\d+\), pid \d+$/) {
+   } elsif ($ThisLine =~ /^Starting (zarafa|kopano)-licensed version [0-9,]+ \(\d+\), pid \d+$/) {
       $licensed_starts++;
    # TD: Exiting
    } elsif ($ThisLine =~ /^Exiting$/) {
       $licensed_shutdowns++;
    # TD: Unable to get row count on server 'file:///var/run/zarafa-prio': 0x80040115
    } elsif ($ThisLine =~ /^Unable to get row count on server '.*': (0x[0-9A-F]{8})$/) {
-      $errors{lc($1) .": zarafa-search: Unable to get row count"}++;
+      $errors{lc($1) .": kopano-search: Unable to get row count"}++;
    # TD: Unable to connect to zarafa server on 'file:///var/run/zarafa-prio': 0x80040115
-   } elsif ($ThisLine =~ /^Unable to connect to zarafa server on '.*': (0x[0-9A-F]{8})$/) {
-      $errors{lc($1) .": zarafa-search: Unable to connect to zarafa-server"}++;
+   } elsif ($ThisLine =~ /^Unable to connect to kopano server on '.*': (0x[0-9A-F]{8})$/) {
+      $errors{lc($2) .": $1-search: Unable to connect to $1-server"}++;
    # TD: SSL_accept() failed in soap_ssl_accept()
    } elsif ($ThisLine =~ /^SSL_accept\(\) failed/) {
       $errors{$ThisLine}++;
@@ -376,16 +380,16 @@ while (defined($ThisLine = <STDIN>)) {
 # %-56s: %5i Time(s)
 
 if ($starts) {
-   printf "  %8i   %-36s\n", $starts, 'zarafa-server starts';
+   printf "  %8i   %-36s\n", $starts, 'kopano-server starts';
 }
 if ($shutdowns) {
-   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-server shutdowns';
+   printf "  %8i   %-36s\n", $shutdowns, 'kopano-server shutdowns';
 }
 if ($licensed_starts) {
-   printf "  %8i   %-36s\n", $licensed_starts, 'zarafa-licensed starts';
+   printf "  %8i   %-36s\n", $licensed_starts, 'kopano-licensed starts';
 }
 if ($licensed_shutdowns) {
-   printf "  %8i   %-36s\n", $licensed_shutdowns, 'zarafa-licensed shutdowns';
+   printf "  %8i   %-36s\n", $licensed_shutdowns, 'kopano-licensed shutdowns';
 }
 if ($authOK) {
    printf "  %8i   %-36s\n", $authOK, 'successfull authentications';

@@ -161,11 +161,11 @@ while (defined($ThisLine = <STDIN>)) {
    }
 
    # TD: Termination requested, shutting down
-   elsif ($ThisLine =~ /^Termination requested, shutting down$/) {
+   elsif ($ThisLine =~ /^Termination requested, shutting down/) {
       $shutdowns++;
    }
-   # TD: Starting zarafa-monitor version 7,1,10,44973 (44973), pid 371
-   elsif ($ThisLine =~ /^Starting zarafa-monitor version \d+,\d+,\d+,\d+ \(\d+\), pid \d+$/) {
+   # TD: Starting kopano-monitor version 8.7.82 (pid 5057 uid 0)
+   elsif ($ThisLine =~ /^Starting kopano-monitor version \d+.\d+.\d+ \(pid \d+ uid \d+\)$/) {
       $starts++;
    }
    # TD: Storage size of company Studenten has exceeded one or more size limits
@@ -223,10 +223,10 @@ while (defined($ThisLine = <STDIN>)) {
 # %-56s: %5i Time(s)
 
 if ($starts) {
-   printf "  %8i   %-36s\n", $starts, 'zarafa-monitor starts';
+   printf "  %8i   %-36s\n", $starts, 'kopano-monitor starts';
 }
 if ($shutdowns) {
-   printf "  %8i   %-36s\n", $shutdowns, 'zarafa-monitor shutdowns';
+   printf "  %8i   %-36s\n", $shutdowns, 'kopano-monitor shutdowns';
 }
 if ($runtime > 0) {
    printf "  %8i   %-36s\n", $runtime, 'runtime';
