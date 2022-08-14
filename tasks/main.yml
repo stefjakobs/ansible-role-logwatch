@@ -1,9 +1,11 @@
 ---
 - name: install logwatch
-  apt: name=logwatch state=present
+  ansible.builtin.apt:
+    name: logwatch
+    state: present
 
 - name: copy zarafa service scripts
-  copy:
+  ansible.builtin.copy:
     src: "{{ item }}"
     dest: /etc/logwatch/scripts/services/{{ item }}
     owner: 'root'
@@ -18,7 +20,7 @@
     - zarafa-spooler
 
 - name: copy zarafa service config
-  copy:
+  ansible.builtin.copy:
     src: "{{ item }}.conf.service"
     dest: /etc/logwatch/conf/services/{{ item }}.conf
     owner: 'root'
@@ -33,7 +35,7 @@
     - zarafa-spooler
 
 - name: copy zarafa logfile config
-  copy:
+  ansible.builtin.copy:
     src: "{{ item }}.conf.logfile"
     dest: /etc/logwatch/conf/logfiles/{{ item }}.conf
     owner: 'root'

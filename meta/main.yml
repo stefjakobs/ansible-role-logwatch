@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: logwatch
+  author: Stefan Jakobs <projects@localside.net>
+  description: Install logwatch and supply additional config
+  license: MIT
+  min_ansible_version: 2.9.0
+  platforms:
+    - name: Debian
+      versions:
+        - bullseye
+  galaxy_tags:
+    - logwatch
+dependencies: []
